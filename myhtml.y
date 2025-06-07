@@ -1,7 +1,6 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 extern FILE *yyin;
 extern int yylex();
@@ -9,6 +8,7 @@ extern int yyparse();
 extern int yylineno;
 
 void yyerror(const char *s);
+
 %}
 
 %union {
@@ -27,7 +27,7 @@ void yyerror(const char *s);
 %token ID_ATTR CHARSET_ATTR NAME_ATTR STYLE_ATTR CONTENT_ATTR HREF_ATTR SRC_ATTR ALT_ATTR
 %token WIDTH_ATTR HEIGHT_ATTR FOR_ATTR TYPE_ATTR VALUE_ATTR
 
-%token SELF_CLOSE COMMENT_OPEN COMMENT_CLOSE
+%token COMMENT_OPEN COMMENT_CLOSE
 
 %start myHTML
 
@@ -59,6 +59,7 @@ head_element_list:
 head_element:
     title
   | meta
+  | comment
 ;
 
 title:
@@ -90,16 +91,12 @@ body_element_list:
 ;
 
 body_element:
-    element
-  | comment
-;
-
-element:
     p_tag
   | a_tag
   | img_tag
   | form_tag
   | div_tag
+  | comment
 ;
 
 comment:
@@ -111,11 +108,9 @@ p_tag:
 ;
 
 p_attributes:
-    ID_ATTR STRING p_style_attr
-;
-
-p_style_attr:
-    STYLE_ATTR TEXT
+    ID_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING
   | /* empty */
 ;
 
@@ -131,14 +126,25 @@ a_tag:
 a_attributes:
     HREF_ATTR STRING ID_ATTR STRING
   | ID_ATTR STRING HREF_ATTR STRING
+  | HREF_ATTR STRING
+  | ID_ATTR STRING
+  | /* empty */
 ;
 
 a_content:
-    /* empty */
-  | TEXT
+    a_content_list
+  | /* empty */
+;
+
+a_content_list:
+    a_content_list a_content_items
+  | a_content_items
+;
+
+a_content_items:
+    TEXT
   | img_tag
-  | TEXT img_tag
-  | img_tag TEXT
+  | comment
 ;
 
 img_tag:
@@ -156,6 +162,8 @@ img_core_attrs:
   | ALT_ATTR STRING SRC_ATTR STRING ID_ATTR STRING
   | ID_ATTR STRING ALT_ATTR STRING SRC_ATTR STRING
   | SRC_ATTR STRING ID_ATTR STRING ALT_ATTR STRING
+  | SRC_ATTR STRING ALT_ATTR STRING
+  | ALT_ATTR STRING SRC_ATTR STRING
 ;
 
 img_size_attrs:
@@ -171,12 +179,10 @@ form_tag:
 ;
 
 form_attributes:
-    ID_ATTR STRING form_style_attr
-  | form_style_attr ID_ATTR STRING
-;
-
-form_style_attr:
-    STYLE_ATTR STRING
+    ID_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING
+  | STYLE_ATTR STRING
   | /* empty */
 ;
 
@@ -186,8 +192,13 @@ form_elements:
 ;
 
 form_element_list:
-    form_element_list form_element
-  | form_element
+    form_element_list form_or_comment
+  | form_or_comment
+;
+
+form_or_comment:
+    form_element
+  | comment
 ;
 
 form_element:
@@ -236,6 +247,7 @@ label_style_attr:
 
 label_content:
     TEXT
+  | comment
   | /* empty */
 ;
 
@@ -244,12 +256,10 @@ div_tag:
 ;
 
 div_attributes:
-    ID_ATTR STRING div_style_attr
-  | div_style_attr ID_ATTR STRING
-;
-
-div_style_attr:
-    STYLE_ATTR STRING
+    ID_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING
+  | STYLE_ATTR STRING
   | /* empty */
 ;
 
@@ -272,14 +282,23 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    int res = yyparse();
+    rewind(yyin); // Go to the start of the file
+    int c;
+    while ((c = fgetc(yyin)) != EOF) {
+        putchar(c);
+    }
 
-    if (res == 0) {
+    // Reset again to allow parsing
+    rewind(yyin);
+	
+    int result = yyparse();
+
+    if (result == 0) {
         printf("\nParsing successful!\n");
     } else {
         printf("\nParsing failed at line %d\n", yylineno);
     }
 
     fclose(yyin);
-    return res;
+    return result;
 }
