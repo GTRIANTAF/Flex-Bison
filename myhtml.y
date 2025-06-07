@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 
 extern FILE *yyin;
 extern int yylex();
@@ -10,300 +9,17 @@ extern int yyparse();
 extern int yylineno;
 int semantic_errors = 0;
 
-void yyerror(const char *s);
-
-#define MAX_IDS 1000
-typedef struct {
-    char id[256];  
-    int line_number;
-} id_info_t;
-
-id_info_t id_array[MAX_IDS];
-int id_count = 0;
-
-id_info_t input_id_array[MAX_IDS];
-int input_id_count = 0;
-
-typedef struct {
-    char input_id[256]; 
-    char label_id[256]; 
-    int line_number;
-} label_connection_t;
-
-label_connection_t label_connections[MAX_IDS];
-int label_connection_count = 0;
-
-//EROTIMA A TITLE LENGTH
 void check_title_length(const char *title, int line) {
     if (!title) return;
     
     int len = strlen(title);
     if (len > 60) {
-        fprintf(stderr, " Error at line %d: Title text exceeds 60 characters (current: %d)\n", 
-                line, len);
+        fprintf(stderr, "Error at line %d: Title text bigger than 60 characters (current: %d)\n", line, len);
         semantic_errors++;
     }
 }
 
-const char* strip_quotes(const char* input) {
-    static char buffer[512]; 
-    
-    if (!input) return NULL;
-    
-    int len = strlen(input);
-    if (len >= 2 && ((input[0] == '"' && input[len-1] == '"'))) {
-        strncpy(buffer, input+1,len-2);
-        buffer[len-2] = '\0';
-        return buffer;
-    }
-    
-    strcpy(buffer, input);
-    return buffer;
-}
-
-//EROTIMA B CHECK ID 
-void check_id(const char *id, int line) {
-    if (!id) return;
-    
-    const char* cleaned_id = strip_quotes(id);
-    if (!cleaned_id) return;
-    
-    // Check if ID already exists
-    for (int i = 0; i < id_count; i++) {
-        if (strcmp(id_array[i].id, cleaned_id) == 0) {
-            fprintf(stderr, " Error at line %d: Duplicate ID '%s' (Same at line %d)\n", 
-                    line, cleaned_id, id_array[i].line_number);
-            semantic_errors++;
-            return;
-        }
-    }
-    
-    if (id_count < MAX_IDS) {
-        strcpy(id_array[id_count].id, cleaned_id);
-        id_array[id_count].line_number = line;
-        id_count++;
-    }
-}
-
-void check_input_id(const char *id, int line) {
-    if (!id) return;
-    
-    const char* cleaned_id = strip_quotes(id);
-    if (!cleaned_id) return;
-    
-    if (input_id_count < MAX_IDS) {
-        strcpy(input_id_array[input_id_count].id, cleaned_id);
-        input_id_array[input_id_count].line_number = line;
-        input_id_count++;
-    }
-}
-
-//EROTIMA C HREF
-const char *known_schemes[] = {
-    "http://", "https://", "ftp://", "mailto:", "file://"
-};
-
-#define NUM_SCHEMES (sizeof(known_schemes) / sizeof(known_schemes[0]))
-
-int is_absolute_url(const char *url) {
-    for (int i = 0; i < NUM_SCHEMES; i++) {
-        if (strncmp(url, known_schemes[i], strlen(known_schemes[i])) == 0) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-void check_href(const char *href, int line) {
-    if (!href) return;
-    
-    const char* cleaned_href = strip_quotes(href);
-    if (!cleaned_href) return;
-   
-    if (cleaned_href[0] == '#') {
-        const char *ref_id = cleaned_href + 1;
-        int found = 0;
-        for (int i = 0; i < id_count; i++) {
-            if (strcmp(id_array[i].id, ref_id) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            fprintf(stderr, " Error at line %d: href references non-existent ID '%s'\n", 
-                    line, ref_id);
-            semantic_errors++;
-        } else {
-            printf("Line %d: href is an internal reference to ID '%s'\n", line, ref_id);
-        }
-    } else if (is_absolute_url(cleaned_href)) {
-        printf("Line %d: href is an absolute URL: %s\n", line, cleaned_href);
-    } else {
-        printf("Line %d: href is a relative URL: %s\n", line, cleaned_href);
-    }
-}
-
-//EROTIMA D SRC
-void check_src(const char *src, int line) {
-    if (!src) return;
-    
-    const char* cleaned_src = strip_quotes(src);
-    if (!cleaned_src) return;
-    
-    if (is_absolute_url(cleaned_src)) {
-        printf("Info at line %d: src is an absolute URL: %s\n", line, cleaned_src);
-    } else {
-        printf("Info at line %d: src is a relative URL: %s\n", line, cleaned_src);
-    }
-}
-
-//EROTIMA E TYPE
-const char *known_type_schemes[] = {
-    "text", "checkbox", "radio", "submit"
-};
-
-#define NUM_TYPE_SCHEMES (sizeof(known_type_schemes) / sizeof(known_type_schemes[0]))
-
-int type_submit = 0;
-int last_type_submit = 0;
-
-void check_type(const char *type, int line){
-    if (!type) return;
-    
-    const char* cleaned_type = strip_quotes(type);
-    int valid = 0;
-    
-    for (int i = 0; i < NUM_TYPE_SCHEMES; i++){
-        if(strcmp(cleaned_type, known_type_schemes[i]) == 0){
-           valid = 1;
-           break;
-        }
-    }
-    
-    if (!valid){
-        fprintf(stderr, "Semantic Error at line %d: Invalid input type '%s'\n", line, cleaned_type);
-        semantic_errors++;
-    } else {
-        if (strcmp(cleaned_type, "submit") == 0) {
-            if (type_submit) {
-                fprintf(stderr, "Semantic Error at line %d: One submit button allowed\n", line);
-                semantic_errors++;
-            } else {
-               type_submit = 1;
-            }
-             last_type_submit = 1;
-        } else {
-            if (type_submit && !last_type_submit) {
-                fprintf(stderr, "Semantic Error at line %d: Submit button must be the last input element\n", line);
-                semantic_errors++;
-                type_submit = 0;
-            }
-            last_type_submit = 0;
-        }
-    }
-}
-
-//EROTIMA F LABEL
-void check_id_for(const char *for_id, const char *label_id, int line){
-    if (!for_id || !label_id) return;
-    
-    const char* striped_for_id = strip_quotes(for_id);
-    const char* striped_label_id = strip_quotes(label_id);
-    
-    int input_found = 0;
-    for (int i = 0; i < input_id_count; i++) {
-        if (strcmp(input_id_array[i].id, for_id) == 0) {
-            input_found = 1;
-            break;
-        }
-    }
-    if (!input_found) {
-        fprintf(stderr, "Error at line %d: The label 'for' attribute '%s' doesn't exist\n", line, striped_for_id);
-        semantic_errors++;
-        return;
-    }
-    
-    for (int i = 0; i < label_connection_count; i++) {
-        if (strcmp(label_connections[i].input_id, for_id) == 0) {
-            fprintf(stderr, "Error at line %d: Element '%s' already connected to label '%s' (line %d)\n", 
-                    line, striped_for_id, label_connections[i].label_id, label_connections[i].line_number);
-            semantic_errors++;
-            return;
-        }
-    }
-    
-    if (label_connection_count < MAX_IDS) {
-        strcpy(label_connections[label_connection_count].input_id,striped_for_id); 
-        strcpy(label_connections[label_connection_count].label_id,striped_label_id); 
-        label_connections[label_connection_count].line_number = line;
-        label_connection_count++;
-    }
-}
-
-//EROTIMA E STYLE
-int is_valid_style_property(const char* prop,const char* val) {
-    if(strcmp(prop, "background_color") == 0||strcmp(prop, "color") == 0 || strcmp(prop, "font_family")==0) {
-        return 1;
-    }
-    if(strcmp(prop, "font_size") == 0) {
-        int len = strlen(val);
-        if(len > 2) {
-            if((val[len-1] == '%')||(strncmp(val+len-2, "px",2) == 0)) {
-                return 1;
-            }
-        }
-        return 0;
-    }
-    return 0;
-}
-
-void check_style(const char* style_str, int line) {
-    if(!style_str) return;
-    
-    char buffer[1024];
-    char seen_props[MAX_IDS][64];
-    int unique_count = 0;
-    
-    strcpy(buffer, style_str);
-    
-    for(char* segment = strtok(buffer, ";"); segment && unique_count < MAX_IDS; segment = strtok(NULL, ";")) {
-        char* delimiter = strchr(segment, ':');
-        
-        if(!delimiter) {
-            fprintf(stderr, " Line %d: malformed style entry '%s' (missing colon)\n",line,segment);
-            semantic_errors++;
-            continue;
-        }
-        
-        *delimiter = '\0';
-        char* property = segment;
-        char* value = delimiter+1;
-        
-        // Strip leading spaces
-        while(isspace(*property)) property++;
-        while(isspace(*value)) value++;
-        
-        // Check if we've encountered this property already
-        int already_seen = 0;
-        for(int idx = 0; idx < unique_count; idx++) {
-            if(!strcmp(seen_props[idx], property)) {
-                fprintf(stderr, " Line %d: property '%s' appears multiple times\n", line, property);
-                semantic_errors++;
-                already_seen = 1;
-                break;
-            }
-        }
-        
-        if(already_seen) continue;
-        
-        if(is_valid_style_property(property, value)) {
-            strcpy(seen_props[unique_count++], property);
-        } else {
-            fprintf(stderr, " Line %d: invalid property-value pair '%s:%s'\n", line, property, value);
-            semantic_errors++;
-        }
-    }
-}
+void yyerror(const char *s);
 
 %}
 
@@ -404,15 +120,9 @@ p_tag:
 ;
 
 p_attributes:
-    ID_ATTR STRING STYLE_ATTR STRING {
-        check_id($2, yylineno);
-        check_style($4, yylineno);
-    }
-  | STYLE_ATTR STRING ID_ATTR STRING {
-        check_id($4, yylineno);
-        check_style($2, yylineno);
-    }
-  | ID_ATTR STRING {check_id($2, yylineno);}
+    ID_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING
   | /* empty */
 ;
 
@@ -426,20 +136,10 @@ a_tag:
 ;
 
 a_attributes:
-    HREF_ATTR STRING ID_ATTR STRING {
-        check_id($4, yylineno);
-        check_href($2, yylineno);
-    }
-  | ID_ATTR STRING HREF_ATTR STRING {
-        check_id($2, yylineno);
-        check_href($4, yylineno);
-    }
-  | HREF_ATTR STRING {
-        check_href($2, yylineno);
-    }
-  | ID_ATTR STRING {
-        check_id($2, yylineno);
-    }
+    HREF_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING HREF_ATTR STRING
+  | HREF_ATTR STRING
+  | ID_ATTR STRING
   | /* empty */
 ;
 
@@ -468,36 +168,14 @@ img_attributes:
 ;
 
 img_core_attrs:
-    ID_ATTR STRING SRC_ATTR STRING ALT_ATTR STRING {
-        check_id($2, yylineno);
-        check_src($4, yylineno);
-    }
-  | SRC_ATTR STRING ALT_ATTR STRING ID_ATTR STRING {
-        check_id($6, yylineno);
-        check_src($2, yylineno);
-    }
-  | ALT_ATTR STRING ID_ATTR STRING SRC_ATTR STRING {
-        check_id($4, yylineno);
-        check_src($6, yylineno);
-    }
-  | ALT_ATTR STRING SRC_ATTR STRING ID_ATTR STRING {
-        check_id($6, yylineno);
-        check_src($4, yylineno);
-    }
-  | ID_ATTR STRING ALT_ATTR STRING SRC_ATTR STRING {
-        check_id($2, yylineno);
-        check_src($6, yylineno);
-    }
-  | SRC_ATTR STRING ID_ATTR STRING ALT_ATTR STRING {
-        check_id($4, yylineno);
-        check_src($2, yylineno);
-    }
-  | SRC_ATTR STRING ALT_ATTR STRING {
-        check_src($2, yylineno);
-    }
-  | ALT_ATTR STRING SRC_ATTR STRING {
-        check_src($4, yylineno);
-    }
+    ID_ATTR STRING SRC_ATTR STRING ALT_ATTR STRING
+  | SRC_ATTR STRING ALT_ATTR STRING ID_ATTR STRING
+  | ALT_ATTR STRING ID_ATTR STRING SRC_ATTR STRING
+  | ALT_ATTR STRING SRC_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING ALT_ATTR STRING SRC_ATTR STRING
+  | SRC_ATTR STRING ID_ATTR STRING ALT_ATTR STRING
+  | SRC_ATTR STRING ALT_ATTR STRING
+  | ALT_ATTR STRING SRC_ATTR STRING
 ;
 
 img_size_attrs:
@@ -513,16 +191,10 @@ form_tag:
 ;
 
 form_attributes:
-    ID_ATTR STRING STYLE_ATTR STRING {
-        check_id($2, yylineno);
-        check_style($4, yylineno);
-    }
-  | STYLE_ATTR STRING ID_ATTR STRING {
-        check_id($4, yylineno);
-        check_style($2, yylineno);
-    }
-  | ID_ATTR STRING {check_id($2, yylineno);}
-  | STYLE_ATTR STRING {check_style($2, yylineno);}
+    ID_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING
+  | STYLE_ATTR STRING
   | /* empty */
 ;
 
@@ -555,23 +227,15 @@ input_attributes:
 ;
 
 input_core_attrs:
-    ID_ATTR STRING TYPE_ATTR STRING {
-        check_id($2, yylineno);
-        check_input_id($2, yylineno);
-        check_type($4, yylineno);
-    }
-  | TYPE_ATTR STRING ID_ATTR STRING {
-        check_id($4, yylineno);
-        check_input_id($4, yylineno);
-        check_type($2, yylineno);
-    }
+    ID_ATTR STRING TYPE_ATTR STRING
+  | TYPE_ATTR STRING ID_ATTR STRING
 ;
 
 input_optional_attrs:
-    VALUE_ATTR STRING STYLE_ATTR STRING {check_style($4, yylineno);}
-  | STYLE_ATTR STRING VALUE_ATTR STRING {check_style($2, yylineno);}
+    VALUE_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING VALUE_ATTR STRING
   | VALUE_ATTR STRING
-  | STYLE_ATTR STRING {check_style($2, yylineno);}
+  | STYLE_ATTR STRING
   | /* empty */
 ;
 
@@ -584,18 +248,12 @@ label_attributes:
 ;
 
 label_core_attrs:
-    ID_ATTR STRING FOR_ATTR STRING {
-        check_id($2, yylineno);
-        check_id_for($4, $2, yylineno);
-    }
-  | FOR_ATTR STRING ID_ATTR STRING {
-        check_id($4, yylineno);
-        check_id_for($2, $4, yylineno);
-    }
+    ID_ATTR STRING FOR_ATTR STRING
+  | FOR_ATTR STRING ID_ATTR STRING
 ;
 
 label_style_attr:
-    STYLE_ATTR STRING {check_style($2, yylineno);}
+    STYLE_ATTR STRING
   | /* empty */
 ;
 
@@ -610,30 +268,25 @@ div_tag:
 ;
 
 div_attributes:
-    ID_ATTR STRING STYLE_ATTR STRING {
-        check_id($2, yylineno);
-        check_style($4, yylineno);
-    }
-  | STYLE_ATTR STRING ID_ATTR STRING {
-        check_style($2, yylineno);
-        check_id($4, yylineno);
-    }
-  | ID_ATTR STRING {
-        check_id($2, yylineno);
-    }
-  | STYLE_ATTR STRING {
-        check_style($2, yylineno);
-    }
+    ID_ATTR STRING STYLE_ATTR STRING
+  | STYLE_ATTR STRING ID_ATTR STRING
+  | ID_ATTR STRING
+  | STYLE_ATTR STRING
   | /* empty */
 ;
 
 %%
+
 void yyerror(const char *s) {
     fprintf(stderr, "Syntax error at line %d: %s\n", yylineno, s);
     exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <input_file>\n", argv[0]);
+        return 1;
+    }
 
     yyin = fopen(argv[1], "r");
     if (!yyin) {
@@ -647,21 +300,20 @@ int main(int argc, char **argv) {
         putchar(c);
     }
 
-    id_count = 0;
-    input_id_count = 0;
-    label_connection_count = 0;
-    
-    int parsed = yyparse();
+    // Reset again to allow parsing
+    rewind(yyin);
+	
+    int result = yyparse();
 
-    if (parsed== 0 && semantic_errors == 0) {
+   if (result == 0 && semantic_errors == 0) {
         printf("\nParsing successful! No semantic errors found.\n");
-    } else if (parsed== 0 && semantic_errors > 0) {
+    } else if (result == 0 && semantic_errors > 0) {
         printf("\nParsing completed with %d semantic error(s).\n", semantic_errors);
-        parsed= 1;
+        result = 1;
     } else {
         printf("\nParsing failed at line %d\n", yylineno);
     }
 
     fclose(yyin);
-    return res;
+    return result;
 }
